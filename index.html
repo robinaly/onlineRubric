@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-type" content="text/html; charset=utf-8">
+  <title>Rubric</title>
+  <link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/knockout/3.4.0/knockout-min.js" type="text/javascript" charset="utf-8"></script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.0/jquery.min.js"></script>
+  <script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+
+<style>
+
+</style>
+  
+</head>
+<body id="index" onload="">
+
+<div class="container">
+  <nav class="navbar navbar-default navbar-fixed-top">
+    <ul class="nav navbar-nav">
+      <li><button type="button" class="btn btn-default" data-bind="click: addUser">add User</button></li>
+      <li><button type="button" class="btn btn-default" data-bind="click: previousUser">Previous</button></li>
+      <li><button type="button" class="btn btn-default" data-bind="click: nextUser">Next</button></li>
+      <li>Current: <span data-bind="text: users().length"></span> </li>
+      <li>Current: <span data-bind="text: userIdx"></span> </li>
+      <li>Users: <span data-bind="text: users().length"></span> </li> 
+      <li><a id="download", data-bind="attr: {href: $root.tojson, download: 'rubric.json'}">Download json</a></li>     
+      <li><input id="file" type="file" /></li>
+    </ul>
+  </nav>
+  <div data-bind="with: rubric">
+    
+    <h1 data-bind="text: title"></h1>
+    <button type="button" class="btn btn-default" data-bind="click: reset">Reset</button>
+    <div class="form-group">
+      <label for="user">User:</label>
+      <input class="form-control" rows="20" id="user" data-bind="value: $root.user().name"></input>
+    </div>
+    
+    <!-- ko foreach: groups -->
+    <h2 data-bind="text: title"></h2>
+    <table class="table table-bordered">
+      <thead>
+        <tr>
+          <td>Category</td>
+          <td>Item 1</td>
+          <td>Item 2</td>
+          <td>Item 3</td>
+          <td>Item 4</td>
+          <td>Item 5</td>
+          <td>Value</td>
+        </tr>
+      </thead>
+      <tbody data-bind="foreach: categories">
+        <tr>
+          <td data-bind="css: {warning: unselected}">
+            <textarea class="form-control" rows="5" data-bind="value: title"></textarea>
+          </td>
+          <!-- ko foreach: items -->
+          <td style="width: 5cm" data-bind="click: click, css: {success: selected}">
+            <textarea class="form-control" rows="5" data-bind="value: title, style: { 'background-color': selected() ? 'lightgreen' : 'white'}"></textarea>
+          </td>
+          <!-- /ko -->
+          <td>
+            <span data-bind="text: value">
+          </td>
+            
+        </tr>
+      </tbody>
+    </table>
+    Group grade: <span data-bind="numericText: total"></span>
+    
+    <!-- /ko --> <!-- End group -->
+    
+    <h1>
+       Final grade: <span data-bind="numericText: total"></span>
+    </h1>
+    
+    <div class="form-group">
+      <label for="blackboard">To paste into black board:</label>
+      <textarea class="form-control" rows="20" id="blackboard" data-bind="value: blackboard"></textarea>
+    </div>
+
+  </div> <!-- End rubric --> 
+  
+  <div class="form-group">
+    <label for="users">Users:</label>
+    <textarea class="form-control" rows="5" id="users" data-bind="value: usersImport"></textarea>
+  </div>
+  <button type="button" class="btn btn-default" data-bind="click: updateRubrics">Update users</button>
+  
+</div> 
+
+
+<!-- Model -->
+<script type="text/javascript">
+
+ko.bindingHandlers.numericText = {
+    update: function(element, valueAccessor, allBindingsAccessor) {
+      var value = ko.utils.unwrapObservable(valueAccessor());
+      var precision = ko.utils.unwrapObservable(allBindingsAccessor().precision) || ko.bindingHandlers.numericText.defaultPrecision;
+      var formattedValue = parseFloat(value).toFixed(precision);
+
+      ko.bindingHandlers.text.update(element, function() { return formattedValue; });
+    },
+    defaultPrecision: 1  
+};
+
+function Item(category, idx, item, def) {
+  var self = this;  
+  self.category = category;
+  self.idx = idx;
+  self.title = ko.observable(item.title);
+  self.value = ko.observable(item.value || def);
+  self.selected = ko.computed(function() {
+    return self.category.selected() == self.idx;
+  }, self);
+  self.click = function() {
+    var group = self.category.group.idx;
+    var cat = self.category.idx;
+    
+    if (self.idx == self.category.selected()) {
+      self.category.selected(null);
+    } else {
+      self.category.selected(self.idx);
+    }    
+  };
+}
+Item.prototype.toJSON = function() {
+    var copy = ko.toJS(this); //easy way to get a clean copy
+    delete copy.category;
+    delete copy.idx;
+    return copy; //return the copy to be serialized
+};
+
+
+function Category(group, i, category, defaults) {
+  var self = this;
+  self.group = group;
+  self.idx = i;
+  self.title = ko.observable(category.title);
+  self.items = ko.observableArray();  
+  //self.selected = ko.observable(category.selected || null);
+  
+  self.selected = ko.pureComputed({
+          read: function () {
+            var cat = self.idx;
+            var group = self.group.idx;
+            var user = self.group.rubric.parent.user();
+            if (group >= user.groups().length) return null;
+            if (cat >= user.groups()[group].categories().length) return null;
+            return user.groups()[group].categories()[cat].selected();
+          },
+          write: function (value) {
+            var cat = self.idx;
+            var group = self.group.idx;
+            var user = self.group.rubric.parent.user();
+            if (group >= user.groups().length) return;
+            if (cat >= user.groups()[group].categories().length) return;
+            user.groups()[group].categories()[cat].selected(value);              
+          },
+          owner: self
+  });
+  
+  
+  $.each(category.items, function(i, item) {
+    self.items.push(new Item(self, i, item, defaults[i]));
+  });
+  
+  self.value = ko.computed(function() {
+    if (self.selected() != null) {
+      console.log(self.selected());
+      return self.items()[self.selected()].value();
+    }
+    return null;
+  }, self);
+  
+  self.blackboard = ko.computed(function() {
+    var res = "";
+    if (self.selected() != null) {
+      res += self.title() + ":" + "\n";
+      res += self.items()[self.selected()].title() + "\n\n";
+    } 
+    return res;
+  }, self);
+  
+  self.unselected = ko.computed(function() {
+    return self.value() == null;
+  }, self);
+  
+  self.count = ko.computed(function() {
+    return self.unselected() ? 0 : 1;
+  }, self); 
+  
+  self.max = ko.computed(function() {
+    return self.items()[0].value();
+  }, self);
+}
+
+Category.prototype.toJSON = function() {
+    var copy = ko.toJS(this); //easy way to get a clean copy
+    delete copy.group; //remove an extra property
+    delete copy.idx; //remove an extra property
+    delete copy.count; //remove an extra property
+    delete copy.max; //remove an extra property
+    delete copy.value; //remove an extra property
+    delete copy.blackboard; //remove an extra property
+    delete copy.unselected;
+    return copy; //return the copy to be serialized
+};
+
+
+function Group(rubric, i, group, defaults) {
+  var self = this;
+  self.rubric = rubric;
+  self.idx = i;
+  self.title = ko.observable(group.title);
+  self.categories = ko.observableArray();
+  
+  $.each(group.categories, function(i, category) {    
+    self.categories.push(new Category(self, i, category, defaults));    
+  });
+  
+  self.count = ko.computed(function() {
+    var res = 0;
+    $.each(self.categories(), function(i, category) {
+      res += category.count();
+    });
+    return res;
+  }, self);
+  
+  self.max = ko.computed(function() {
+    var res = 0.0;
+    $.each(self.categories(), function(i, category) {
+      if (!category.unselected())
+        res += category.max();
+    });
+    return res;
+  }, self);
+  
+  self.total = ko.computed(function() {
+    var res = null;
+    $.each(self.categories(), function(i, category) {
+      if (!category.unselected())
+        res += category.value();
+    });
+    return res / self.max() * 10 || null;
+  }, self);
+
+  self.blackboard = ko.computed(function() {
+    var res = self.title() + "\n===========================\n\n";
+    $.each(self.categories(), function(i, category) {
+      res += category.blackboard();
+    });
+    res + "\nTotal " + self.total();
+    return res;
+  }, self);
+};
+
+Group.prototype.toJSON = function() {
+    var copy = ko.toJS(this); //easy way to get a clean copy
+    delete copy.rubric; //remove an extra property
+    delete copy.max; //remove an extra property
+    delete copy.blackboard; //remove an extra property
+    delete copy.count;
+    return copy; //return the copy to be serialized
+};
+
+function Rubric(viewModel, rubric, defaults) {
+  var self = this;
+  self.parent = viewModel;
+  self.title = ko.observable(rubric.title);
+  self.groups = ko.observableArray();
+  
+  $.each(rubric.groups, function(i, group) {
+    self.groups().push(new Group(self, i, group, defaults));    
+  });
+  
+  self.total = ko.computed(function() {
+    var res = 0;
+    var count = 0.0;
+    $.each(self.groups(), function(i, group) {
+      var t = group.total();
+      if (t!=null) {
+        res += t;
+        count += 1;
+      }
+    });
+    return res / count || 0;
+  }, self);
+  
+  self.blackboard = ko.computed(function() {
+    var res = "";
+    $.each(self.groups(), function(i, group) {
+      res += group.blackboard() + "\n\n";
+    });
+    res += "Final Grade: " + self.total().toFixed(1);
+    return res;
+  }, self).extend({ method: "notifyWhenChangesStop", rateLimit: 1000 });
+  
+  self.reset = function() {
+    $.each(self.groups(), function(i, group) {    
+      $.each(group.categories(), function(i, category) {
+        category.selected(null);
+      });
+    });
+  };
+};
+
+Rubric.prototype.toJSON = function() {
+    var copy = ko.toJS(this); //easy way to get a clean copy
+    delete copy.parent; //remove an extra property
+    delete copy.blackboard; //remove an extra property
+    delete copy.usersImport; //remove an extra property
+    delete copy.users;
+    return copy; //return the copy to be serialized
+};
+
+function UserSelection(selection) {
+  var self = this;
+  self.selected = ko.observable(selection || null);
+}
+
+Rubric.prototype.toJSON = function() {
+    var copy = ko.toJS(this); //easy way to get a clean copy
+    return copy.selected; //return the copy to be serialized
+};
+
+function UserGroup(group, userGroup) {
+  var self = this;
+  self.categories = ko.observableArray();
+  
+  self.update = function(group, userGroup) {
+    userGroup = userGroup || {}
+    userGroup.categories = userGroup.categories || [];
+    for (var i = 0; i < group.categories().length; i++) {
+      if (i >= self.categories().length) {
+        if (i < userGroup.categories.length) {
+          self.categories.push(new UserSelection(userGroup.categories[i]))
+        } else {
+          self.categories.push(new UserSelection(null));
+        }
+      }
+    }
+  };
+  
+  self.update(group, userGroup);
+  
+  self.count = ko.computed(function() {
+    var c = 0;
+    $.each(self.categories(), function(i, category) {
+      c += 1;
+    });
+    return c;
+  }, self);
+};
+UserGroup.prototype.toJSON = function() {
+    var copy = ko.toJS(this); //easy way to get a clean copy
+    delete copy.count; //remove an extra property
+    return copy; //return the copy to be serialized
+};
+
+function User(rubric, user) {
+  var self = this;
+  user = user || {};
+  self.name = ko.observable(user.name||"");
+  self.groups = ko.observableArray();
+  
+  self.update = function(rubric, user) {
+    user = user || {};
+    user.groups = user.groups || [];
+    for (var i = 0; i < rubric.groups().length; i++) {
+      var group = rubric.groups()[i];
+      if (i >= self.groups().length) {
+        if (i < user.groups.length) {
+          self.groups.push(new UserGroup(group, user.groups[i]))
+        } else {  
+          self.groups.push(new UserGroup(group))
+        }
+      }
+      self.groups()[i].update(group)
+    }
+  }
+
+  self.update(rubric, user);
+  
+  self.count = ko.computed(function() {
+    var c = 0;
+    $.each(self.groups(), function(i, group) {
+      c += group.count();
+    });
+    return c;
+  }, self);
+};
+User.prototype.toJSON = function() {
+    var copy = ko.toJS(this); //easy way to get a clean copy
+    delete copy.count; //remove an extra property
+    return copy; //return the copy to be serialized
+};
+
+
+
+
+function ViewModel(data) {
+  var self = this;  
+  self.defaults = data.defaults || [ 10, 6, 4, 1, 0];
+  self.rubric = ko.observable(null);
+  
+  self.user = ko.observable(null);
+  self.users = ko.observableArray();
+  self.userIdx = ko.observable(0);
+  self.usersImport = ko.observable();
+    
+  self.setRubric = function(rubric) {
+    self.rubric(new Rubric(self, rubric, self.defaults));
+    console.log(rubric);
+  }
+  
+  self.addUser = function(user) {
+    self.users.push(new User(self.rubric(), user));
+  }
+    
+  self.updateRubrics = function() {
+    $.each(self.usersImport().split(/\n/), function(i, user) {
+      var u = {}
+      u.name = user;
+      self.addUser(u)
+    });
+  };
+  
+  self.nextUser = function() {
+    var idx = (self.userIdx()+1)%self.users().length;
+    self.userIdx(idx);
+    self.user(self.users()[idx]);
+  };
+  
+  self.previousUser = function() {
+    var idx = (self.userIdx()-1)%self.users().length;
+    if (idx < 0) idx = 0;
+    self.userIdx(idx);
+    self.user(self.users()[idx]);
+  };
+  
+  self.tojson = ko.computed(function() {
+    var x = encodeURIComponent(ko.toJSON(self));
+    var s = "data:text/json;charset=utf-8," + x
+    return s;
+  }, self);
+  
+  self.init = function(data) {
+    if (data.defaults) {
+      self.defaults = data.defaults;
+    }
+    if (data.groups) {
+      var x = {}
+      x.rubric = data
+      data = x;
+    }
+    if (data.rubric) {
+      self.setRubric(data.rubric);
+    } else {
+      self.setRubric({});
+    }
+    if (data.users) {
+      self.users.removeAll();
+      $.each(data.users, function(i, user) {
+        self.users.push(new User(self.rubric(), user)); 
+      });
+    } else if (self.users().length < 1) {
+      self.addUser({})
+    }
+    $.each(self.users(), function(i, user) {
+      user.update(self.rubric(), {});
+    });
+    self.nextUser();
+  };
+  
+  self.init(data)
+};
+
+ViewModel.prototype.toJSON = function() {
+    var copy = ko.toJS(this); //easy way to get a clean copy
+    delete copy.tojson; //remove an extra property
+    delete copy.userIdx; //remove an extra property
+    delete copy.user;
+    delete copy.usersImport;
+    return copy; //return the copy to be serialized
+};
+
+// Initialization 
+var data = {};
+data.rubrics = [];
+var viewModel = new ViewModel(data);
+ko.applyBindings(viewModel);
+
+$.get("rubric.json", function(data) {
+  console.log("Loaded");
+
+  viewModel.init(data);
+});
+
+(function(){    
+  function onChange(event) {
+      var reader = new FileReader();
+      reader.onload = onReaderLoad;
+      reader.readAsText(event.target.files[0]);
+  }
+
+  function onReaderLoad(event){
+      var data = JSON.parse(event.target.result);
+      viewModel.init(data);
+  }
+
+  document.getElementById('file').addEventListener('change', onChange);
+
+}());
+
+
+</script>  
+</body>
+</html>
